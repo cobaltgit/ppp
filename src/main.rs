@@ -1,9 +1,10 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use argh::FromArgs;
 use notify_rust::Notification;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use zbus::blocking::Connection;
+
+mod menu;
+use menu::Menu;
 
 mod powerprofile;
 use powerprofile::PowerProfile;
@@ -20,105 +21,35 @@ struct PPPArgs {
     launcher_args: Option<String>,
 }
 
-fn get_command(launcher: &str, current_profile: PowerProfile, custom_args: Option<&str>) -> Command {
-    let mut cmd = match launcher {
-        "fuzzel" => {
-            let mut cmd = Command::new("fuzzel");
-            cmd.arg("--dmenu")
-                .arg("--index")
-                .arg("--placeholder")
-                .arg(&format!("Current profile: {}", current_profile.name()));
-            cmd
-        },
-        "rofi" => {
-            let mut cmd = Command::new("rofi");
-            cmd.arg("-dmenu")
-                .arg("-i")
-                .arg("-p")
-                .arg(&format!("Current profile: {}", current_profile.name()));
-            cmd
-        },
-        "wofi" => {
-            let mut cmd = Command::new("wofi");
-            cmd.arg("--show=dmenu")
-                .arg("-p")
-                .arg(&format!("Current profile: {}", current_profile.name()));
-            cmd
-        },
-        "tofi" => {
-            let mut cmd = Command::new("tofi");
-            cmd.arg("--prompt-text")
-                .arg(&format!("Current profile: {}\n", current_profile.name()));
-            cmd
-        },
-        _ => { // dmenu/bemenu
-            let mut cmd = Command::new(launcher);
-            cmd.arg("-p")
-                .arg(&format!("Current profile: {}", current_profile.name()));
-            cmd
-        },
-    };
-    
-    // Add custom arguments if provided
-    if let Some(args) = custom_args {
-        for arg in args.split_whitespace() {
-            cmd.arg(arg);
-        }
-    }
-    
-    cmd
-}
 
 fn main() -> Result<()> {
-    let profiles = PowerProfile::all();
-
     let connection = Connection::system()?;
-
     let current_profile = PowerProfile::get_active(&connection)?;
+    let placeholder = format!("Current profile: {}", current_profile.name());
+    
+    let menus: Vec<Menu> = vec![
+        Menu { name: String::from("fuzzel"), args: format!("--dmenu --index --placeholder \"{}\"", placeholder), use_index: true },
+        Menu { name: String::from("rofi"), args: format!("-dmenu -i -p \"{}\"", placeholder), use_index: true },
+        Menu { name: String::from("dmenu"), args: format!("-p \"{}\"", placeholder), use_index: false },
+        Menu { name: String::from("bemenu"), args: format!("-p \"{}\"", placeholder), use_index: false },
+        Menu { name: String::from("wofi"), args: format!("--show=dmenu -p \"{}\"", placeholder), use_index: false },
+        Menu { name: String::from("tofi"), args: format!("-p \"{}\"", placeholder), use_index: false },
+    ];
 
     let args: PPPArgs = argh::from_env();
 
-    let valid_launchers = ["fuzzel", "dmenu", "bemenu", "rofi", "wofi", "tofi"];
-    if !valid_launchers.contains(&args.launcher.as_str()) {
+    let all_menu_names: Vec<String> = menus.iter().map(|m| m.name.clone()).collect();
+    if !all_menu_names.contains(&args.launcher) {
         anyhow::bail!(
             "Invalid launcher '{}'. Must be one of: {}",
             args.launcher,
-            valid_launchers.join(", ")
-        );
+            all_menu_names.join(", ")
+        )
     }
 
-    let mut dmenu_proc = get_command(&args.launcher, current_profile, args.launcher_args.as_deref())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
+    let menu = menus.iter().find(|m| m.name == args.launcher).expect("Could not find menu");
 
-    let dmenu_stdin = dmenu_proc.stdin.as_mut().unwrap();
-
-    let input = profiles.iter()
-        .map(|p| p.entry())
-        .fold(String::new(), |a, b| a + b + "\n");
-    
-    dmenu_stdin.write_all(input.as_bytes())?;
-
-    let output = dmenu_proc.wait_with_output()?;
-    
-    let index = match args.launcher.as_str() {
-        "fuzzel" | "rofi" => String::from_utf8(output.stdout)?
-                                .trim()
-                                .parse::<usize>()?,
-        "dmenu" | "bemenu" | "wofi" | "tofi" => { // for launchers that don't support indexing'
-            let selected_entry = String::from_utf8(output.stdout)?
-                .trim()
-                .to_string();
-        
-            profiles.iter()
-                .position(|p| p.entry() == selected_entry)
-                .ok_or_else(|| anyhow!("Selected entry not found"))?
-        },
-        &_ => todo!()
-    };
-
-    let new_profile = profiles[index];
+    let new_profile = menu.get_profile(args.launcher_args.as_deref())?;
 
     if new_profile == current_profile {
         Notification::new()

@@ -602,11 +602,12 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 
 [[package]]
 name = "ppp"
-version = "1.1.1"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "argh",
  "notify-rust",
+ "shlex",
  "zbus",
 ]
 
