@@ -28,20 +28,20 @@ fn main() -> Result<()> {
     let placeholder = format!("Current profile: {}", current_profile.name());
     
     let menus: Vec<Menu> = vec![
-        Menu { name: String::from("fuzzel"), args: format!("--dmenu --index --placeholder \"{}\"", placeholder), use_index: true },
-        Menu { name: String::from("rofi"), args: format!("-dmenu -i -p \"{}\"", placeholder), use_index: true },
-        Menu { name: String::from("walker"), args: format!("-d -i -p \"{}\"", placeholder), use_index: true },
-        Menu { name: String::from("dmenu"), args: format!("-p \"{}\"", placeholder), use_index: false },
-        Menu { name: String::from("bemenu"), args: format!("-p \"{}\"", placeholder), use_index: false },
-        Menu { name: String::from("wmenu"), args: format!("-p \"{}\"", placeholder), use_index: false },
-        Menu { name: String::from("wofi"), args: format!("--show=dmenu -p \"{}\"", placeholder), use_index: false },
-        Menu { name: String::from("tofi"), args: format!("-p \"{}\"", placeholder), use_index: false },
+        Menu::new(&format!("fuzzel --dmenu --index --placeholder \"{}\"", placeholder), true),
+        Menu::new(&format!("rofi -dmenu -i -p \"{}\"", placeholder), true),
+        Menu::new(&format!("walker -d -i -p \"{}\"", placeholder), true),
+        Menu::new(&format!("dmenu -p \"{}\"", placeholder), false),
+        Menu::new(&format!("bemenu -p \"{}\"", placeholder), false),
+        Menu::new(&format!("wmenu -p \"{}\"", placeholder), false),
+        Menu::new(&format!("wofi --show=dmenu -p \"{}\"", placeholder), false),
+        Menu::new(&format!("tofi -p \"{}\"", placeholder), false),
     ];
 
     let args: PPMenuArgs = argh::from_env();
 
-    let all_menu_names: Vec<String> = menus.iter().map(|m| m.name.clone()).collect();
-    if !all_menu_names.contains(&args.launcher) {
+    let all_menu_names: Vec<&str> = menus.iter().map(|m| m.name()).collect();
+    if !all_menu_names.contains(&args.launcher.as_str()) {
         anyhow::bail!(
             "Invalid launcher '{}'. Must be one of: {}",
             args.launcher,
@@ -49,8 +49,11 @@ fn main() -> Result<()> {
         )
     }
 
-    let menu = menus.iter().find(|m| m.name == args.launcher).expect("Could not find menu");
-
+    let menu = menus.iter().find(|m| m.name() == args.launcher).expect("Could not find menu");
+    if !menu.is_installed() {
+        anyhow::bail!("Menu '{}' not installed!", args.launcher)
+    }
+    
     let new_profile = menu.get_profile(args.launcher_args.as_deref())?;
 
     if new_profile == current_profile {

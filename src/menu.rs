@@ -1,24 +1,36 @@
 use anyhow::{Result, anyhow};
 
+use std::{env, fs};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
 use crate::powerprofile::PowerProfile;
 
 pub struct Menu {
-	pub name: String,
-	pub args: String,
-	pub use_index: bool,
+	name: String,
+	args: Vec<String>,
+	use_index: bool,
 }
 
 impl Menu {
+	pub fn new(cli_args: &str, use_index: bool) -> Self {
+		let shlexed_args = shlex::split(cli_args).unwrap_or_default();
+		Self {
+			name: shlexed_args.get(0).cloned().unwrap_or_default(),
+			args: shlexed_args.get(1..).unwrap_or(&[]).to_vec(),
+			use_index: use_index
+		}
+	}
+
+	pub fn name(&self) -> &str {
+		&self.name
+	}
+
 	pub fn get_profile(&self, additional_args: Option<&str>) -> Result<PowerProfile> {
 		let profiles = PowerProfile::all();
 		let mut proc = Command::new(&self.name);
-		if let Some(shlexed_args) = shlex::split(&self.args) {
-			for arg in shlexed_args {
-				proc.arg(&arg);
-			}
+		for arg in &self.args {
+			proc.arg(&arg);
 		}
 
 		if let Some(more_args) = additional_args {
@@ -57,5 +69,17 @@ impl Menu {
 		};
 
 		Ok(profile)
+	}
+
+	pub fn is_installed(&self) -> bool {
+		if let Ok(path) = env::var("PATH") {
+			for p in env::split_paths(&path) {
+				let fullpath = p.join(self.name.clone());
+				if fs::metadata(&fullpath).is_ok() {
+					return true
+				}
+			}
+		}
+		false
 	}
 }
